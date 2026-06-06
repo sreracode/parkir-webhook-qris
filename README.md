@@ -1,66 +1,79 @@
 # Parkir Webhook QRIS
 
-Menerima notifikasi pembayaran QRIS dari qris.interactive.co.id dan menyimpan ke tabel `tbqriswebhook`.
+**Penerima notifikasi pembayaran QRIS** dari payment gateway. Menerima webhook → simpan ke MySQL → dipolling VB6.
 
 ## Alur
 
 1. Customer bayar via QRIS
 2. Payment gateway POST webhook ke endpoint ini
-3. Data disimpan ke MySQL `tbqriswebhook`
-4. VB6 polling cek tabel untuk konfirmasi status
+3. Data disimpan ke `tbqriswebhook`
+4. VB6 polling tabel untuk konfirmasi status
 
 ## API
 
-- `POST /webhook.php` — Terima webhook dari payment gateway
+| Method | Endpoint | Deskripsi |
+|--------|----------|-----------|
+| `POST` | `/webhook.php` | Terima webhook dari payment gateway |
 
-  Payload: `{ invoice, rrn, note, qris_status, qris_paid_date, qris_payment_methodby, qris_payment_customername }`
+Payload:
+```json
+{
+  "invoice": "INV001",
+  "rrn": "123456",
+  "note": "",
+  "qris_status": "paid",
+  "qris_paid_date": "2026-06-05 14:30:00",
+  "qris_payment_methodby": "gopay",
+  "qris_payment_customername": "Budi"
+}
+```
 
-## Instalasi
+## Konfigurasi (`src/config.php`)
 
-Jalankan `install.bat` sebagai Administrator.
-
-Proses instalasi:
-1. Cek NSSM (diperlukan untuk service management)
-2. Tanya path PHP executable dan port
-3. Register PHP built-in server sebagai **NSSM service** (`ParkirWebhookPHP`) — auto-start
-4. Setup **Cloudflare Tunnel** otomatis:
-   - Login ke Cloudflare (browser akan terbuka)
-   - Buat tunnel `parkir-webhook-qris`
-   - Register tunnel sebagai **NSSM service** (`ParkirWebhookTunnel`) — auto-start
-5. Tampilkan petunjuk config DNS di Cloudflare Dashboard
+```php
+return [
+    'db' => [
+        'host' => 'localhost',
+        'port' => 3306,
+        'name' => 'dbparkir',
+        'user' => 'admin',
+        'pass' => 'usp1235',
+    ]
+];
+```
 
 ## Cloudflare Tunnel
 
-`install.bat` akan otomatis:
-- Login ke Cloudflare
-- Membuat tunnel `parkir-webhook-qris`
-- Register sebagai Windows service via NSSM
+Service ini memakai **shared Cloudflare Tunnel** (satu tunnel untuk semua service). Tunnel ingress dikelola via `shared.ps1` — setiap service cukup tambah ingress rule tanpa bikin tunnel baru.
 
-**Setelah instalasi**, kamu perlu:
+## Instalasi
 
-1. Buka https://dash.cloudflare.com/
-2. Pilih domain (situsindoprima.my.id)
-3. DNS → Add record:
-   - **Type:** CNAME
-   - **Name:** qris-webhook
-   - **Target:** `<tunnel-id>.cfargotunnel.com`
-   - **Proxy:** Proxied (orange cloud)
+Jalankan `install.ps1` sebagai Administrator.
 
-4. Kirim URL ke qris.interactive.co.id sebagai endpoint webhook
+Installer akan:
+1. Generate `config.php`
+2. Register PHP built-in server sebagai NSSM service
+3. Tambah ingress rule ke Cloudflare Tunnel (via API Token)
+4. Update DNS CNAME otomatis
 
-## Control Services
+## Shared .env
 
-```cmd
-nssm start ParkirWebhookPHP     ← Start PHP server
-nssm stop ParkirWebhookPHP      ← Stop PHP server
-nssm restart ParkirWebhookPHP   ← Restart PHP server
-
-nssm start ParkirWebhookTunnel  ← Start Cloudflare Tunnel
-nssm stop ParkirWebhookTunnel   ← Stop Cloudflare Tunnel
-nssm restart ParkirWebhookTunnel
+Credentials Cloudflare & GitHub disimpan di `SERVICE/.env` (sekali isi, semua service pakai):
+```
+GITHUB_TOKEN=ghp_xxx
+CF_API_TOKEN=xxx
+CF_ACCOUNT_ID=xxx
+CF_ZONE_ID=xxx
+CF_TUNNEL_NAME=parkir-tunnel
 ```
 
-## Konfigurasi
+## Teknologi
 
-Edit `src/config.php` setelah instalasi:
-- DB credentials (host, user, pass, database name)
+- **PHP** — Built-in server
+- **MySQL** — `tbqriswebhook`
+- **Cloudflare Tunnel** — Public access
+- **NSSM** — Windows service wrapper
+
+---
+
+Dikembangkan untuk **SMARTPARK** — Situsindo Prima.
