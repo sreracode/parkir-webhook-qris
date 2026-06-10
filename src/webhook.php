@@ -2,31 +2,38 @@
 // webhook.php
 header('Content-Type: application/json');
 
-$config = include __DIR__ . '/config.php';
+// Memuat konfigurasi
+$config = require 'config.php';
 $db = $config['db'];
 
+// Ambil raw JSON body
 $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 
-if (!$data || empty($data['invoice'])) {
+// Pengecekan payload (kompatibel dengan PHP versi lama)
+if ($data === null || !isset($data['invoice'])) {
     http_response_code(400);
     echo json_encode(array('status' => 'error', 'message' => 'invalid payload'));
     exit;
 }
 
-$dsn = sprintf(
-    'mysql:host=%s;port=%d;dbname=%s;charset=utf8',
-    $db['host'],
-    $db['port'],
-    $db['name']
-);
-
-$pdo = new PDO($dsn, $db['user'], $db['pass']);
-
-function val($arr, $key, $default = '') {
-    return isset($arr[$key]) ? $arr[$key] : $default;
+// Koneksi ke MySQL menggunakan data dari config
+try {
+    $dsn = "mysql:host=" . $db['host'] . ";port=" . $db['port'] . ";dbname=" . $db['name'] . ";charset=utf8";
+    $pdo = new PDO($dsn, $db['user'], $db['pass']);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(array('status' => 'error', 'message' => 'Database connection failed'));
+    exit;
 }
 
+// Helper: ambil nilai array dengan fallback
+function val($arr, $key) {
+    return isset($arr[$key]) ? $arr[$key] : '';
+}
+
+// Simpan data webhook ke tabel
 $stmt = $pdo->prepare("
     INSERT INTO tbqriswebhook 
         (invoice, rrn, note, qris_status, qris_paid_date, payment_method, customer_name)
@@ -47,5 +54,7 @@ $stmt->execute(array(
     ':name'           => val($data, 'qris_payment_customername'),
 ));
 
+// Balas 200 OK agar provider tidak mengirim ulang request
 http_response_code(200);
 echo json_encode(array('status' => 'ok'));
+?>
